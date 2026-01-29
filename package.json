@@ -1,0 +1,98 @@
+{
+  "name": "word-highlighter",
+  "displayName": "Word Highlighter",
+  "description": "Highlight words in code files with F8 key",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.103.0"
+  },
+	"author": {
+		"name": "deluex"
+	},
+	"license": "Apache-2.0",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/deluex/word-highlighter"
+	},
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "word-highlighter.toggleWordHighlight",
+        "title": "Word Highlighter: Toggle Word Highlight"
+      },
+      {
+        "command": "word-highlighter.clearAllHighlights",
+        "title": "Word Highlighter: Clear All Highlights"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "word-highlighter.toggleWordHighlight",
+        "key": "f8",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Word Highlighter",
+      "properties": {
+        "wordHighlighter.defaultColors": {
+          "type": "array",
+          "default": [
+            "#FF6B6B", "#4ECDC4", "#FFD166", "#06D6A0", "#118AB2", "#EF476F",
+            "#9B5DE5", "#00BBF9", "#00F5D4", "#F15BB5", "#FEE440", "#FF9E6D",
+            "#7BDCB5", "#8AC926", "#1982C4", "#6A4C93"
+          ],
+          "description": "Default colors for highlighting different words"
+        },
+        "wordHighlighter.caseSensitive": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether word matching should be case sensitive"
+        },
+        "wordHighlighter.useContrastColor": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to use contrast color for text, set to true will automatically chooses black or white based on background color"
+        },
+        "wordHighlighter.defaultTextColor": {
+          "type": "string",
+          "default": "#000000",
+          "description": "Default text color when useContrastColor is false"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "pnpm run package",
+    "compile": "pnpm run check-types && pnpm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "pnpm run check-types && pnpm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.103.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "typescript-eslint": "^8.52.0",
+    "eslint": "^9.39.2",
+    "esbuild": "^0.27.2",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.9.3",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}
