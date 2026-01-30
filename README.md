@@ -73,25 +73,15 @@ pnpm run package
 ## Known Issues
 
 - Large files with many highlights may experience performance impact
-- Highlights are file-specific and don't work across multiple files simultaneously
 - Unicode characters in words may not be highlighted correctly in some cases
 
 ## Release Notes
 
+### 1.0.0
+- Supports highlighting of single words, and supports highlighting of strings of any length.
+
 ### 0.1.0
 - Initial release
-- Basic word highlighting with F8
-- Multiple word support with different colors
-- Persistent storage of highlights
-- Configurable colors and case sensitivity
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests and ensure code quality
-5. Submit a pull request
 
 ## License
 

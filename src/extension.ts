@@ -4,9 +4,12 @@ interface HighlightInfo {
 	word: string;
 	color: string;
 	decorations: vscode.TextEditorDecorationType[];
+	requireWordBoundary: boolean;
 }
 
 class WordHighlighter implements vscode.Disposable {
+	private static readonly WORKSPACE_STATE_HIGHLIGHTS: string = "wordHighlighter.highlights";
+
 	private context: vscode.ExtensionContext;
 	private subscriptions: vscode.Disposable[] = [];
 	private highlights: Map<string, HighlightInfo> = new Map();
@@ -93,9 +96,13 @@ class WordHighlighter implements vscode.Disposable {
 	}
 
 	private loadSavedHighlights() {
-		const savedHighlights = this.context.workspaceState.get<HighlightInfo[]>('wordHighlighter.highlights', []);
+		const savedHighlights = this.context.workspaceState.get<HighlightInfo[]>(
+			WordHighlighter.WORKSPACE_STATE_HIGHLIGHTS, []);
 		savedHighlights.forEach(savedHighlight => {
-			const highlightInfo = this.createHighlightInfo(savedHighlight.word, savedHighlight.color);
+			const highlightInfo = this.createHighlightInfo(
+				savedHighlight.word,
+				savedHighlight.color,
+				savedHighlight.requireWordBoundary);
 			this.highlights.set(highlightInfo.word, highlightInfo);
 		});
 
@@ -104,13 +111,8 @@ class WordHighlighter implements vscode.Disposable {
 	}
 
 	private saveHighlights() {
-		const highlightsArray = Array.from(this.highlights.values()).map(highlight => ({
-			word: highlight.word,
-			color: highlight.color,
-			decorations: []
-		}));
-
-		this.context.workspaceState.update('wordHighlighter.highlights', highlightsArray);
+		const highlightsArray = Array.from(this.highlights.values());
+		this.context.workspaceState.update(WordHighlighter.WORKSPACE_STATE_HIGHLIGHTS, highlightsArray);
 	}
 
 	private getNextColor(): string {
@@ -154,11 +156,16 @@ class WordHighlighter implements vscode.Disposable {
 		return luminance > 0.5 ? '#000000' : '#FFFFFF';
 	}
 
-	private getWordAtCursor(editor: vscode.TextEditor): string | null {
+	private getWordAtCursor(editor: vscode.TextEditor): { word: string; isFromSelection: boolean; range: vscode.Range } | null {
 		const document = editor.document;
 
 		if (!editor.selection.isEmpty) {
-			return document.getText(editor.selection);
+			const text = document.getText(editor.selection);
+			return {
+				word: text,
+				isFromSelection: true,
+				range: editor.selection
+			};
 		}
 
 		const position = editor.selection.active;
@@ -168,7 +175,12 @@ class WordHighlighter implements vscode.Disposable {
 			return null;
 		}
 
-		return document.getText(wordRange);
+		const word = document.getText(wordRange);
+		return {
+			word: word,
+			isFromSelection: false,
+			range: wordRange
+		};
 	}
 
 	private findWordOccurrences(document: vscode.TextDocument, textToFind: string): vscode.Range[] {
@@ -194,40 +206,70 @@ class WordHighlighter implements vscode.Disposable {
 		return ranges;
 	}
 
+	private findWordOccurrencesWithBoundary(document: vscode.TextDocument, word: string): vscode.Range[] {
+		const ranges: vscode.Range[] = [];
+		const textLength = document.getText().length;
+		const normalizedTargetWord = this.caseSensitive ? word : word.toLowerCase();
+
+		for (let i = 0; i < textLength; i++) {
+			const position = document.positionAt(i);
+			const wordRange = document.getWordRangeAtPosition(position);
+
+			if (wordRange && !wordRange.isEmpty) {
+				const currentWord = document.getText(wordRange);
+				const normalizedCurrentWord = this.caseSensitive ? currentWord : currentWord.toLowerCase();
+
+				if (normalizedCurrentWord === normalizedTargetWord) {
+					// Avoid adding duplicate ranges
+					if (!ranges.some(r => r.isEqual(wordRange))) {
+						ranges.push(wordRange);
+					}
+					// Skip to the end of this word to avoid redundant checks
+					i = document.offsetAt(wordRange.end);
+				}
+			}
+		}
+
+		return ranges;
+	}
+
 	public toggleWordHighlight() {
 		const editor = vscode.window.activeTextEditor;
 		if (!editor) {
 			return;
 		}
 
-		const word = this.getWordAtCursor(editor);
-		if (!word) {
+		const wordInfo = this.getWordAtCursor(editor);
+		if (!wordInfo) {
 			return;
 		}
 
-		const normalizedWord = this.caseSensitive ? word : word.toLowerCase();
+		const normalizedWord = this.caseSensitive ? wordInfo.word : wordInfo.word.toLowerCase();
 
 		if (this.highlights.has(normalizedWord)) {
 			this.removeHighlight(normalizedWord);
 		} else {
-			this.addHighlight(word);
+			this.addHighlight(wordInfo);
 		}
 	}
 
-	private createHighlightInfo(word: string, color: string): HighlightInfo {
+	private createHighlightInfo(word: string, color: string, requireWordBoundary: boolean): HighlightInfo {
 		const normalizedWord = this.caseSensitive ? word : word.toLowerCase();
 		const decorationType = this.createDecorationType(color);
 
 		return {
 			word: normalizedWord,
 			color: color,
-			decorations: [decorationType]
+			decorations: [decorationType],
+			requireWordBoundary: requireWordBoundary
 		};
 	}
 
-	private addHighlight(word: string) {
+	private addHighlight(wordInfo: { word: string; isFromSelection: boolean; range: vscode.Range }) {
 		const color = this.getNextColor();
-		const highlightInfo = this.createHighlightInfo(word, color);
+		// requireWordBoundary is false when word is from selection, true when from cursor
+		const requireWordBoundary = !wordInfo.isFromSelection;
+		const highlightInfo = this.createHighlightInfo(wordInfo.word, color, requireWordBoundary);
 
 		this.highlights.set(highlightInfo.word, highlightInfo);
 		this.updateAllHighlights();
@@ -271,7 +313,9 @@ class WordHighlighter implements vscode.Disposable {
 	private updateHighlightsForEditor(editor: vscode.TextEditor) {
 		this.highlights.forEach((highlightInfo) => {
 			const word = highlightInfo.word;
-			const ranges = this.findWordOccurrences(editor.document, word);
+			const ranges = highlightInfo.requireWordBoundary
+				? this.findWordOccurrencesWithBoundary(editor.document, word)
+				: this.findWordOccurrences(editor.document, word);
 
 			highlightInfo.decorations.forEach(decoration => {
 				editor.setDecorations(decoration, ranges);

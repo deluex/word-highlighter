@@ -2,7 +2,7 @@
   "name": "word-highlighter",
   "displayName": "Word Highlighter",
   "description": "Highlight words in code files with F8 key",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "engines": {
     "vscode": "^1.103.0"
   },
