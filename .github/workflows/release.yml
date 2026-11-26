@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build VSIX and create GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Validate tag and compute metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="${GITHUB_REF_NAME}"
+          if [ "v${VERSION}" != "${TAG}" ]; then
+            echo "::error::Tag '${TAG}' does not match package.json version '${VERSION}'."
+            exit 1
+          fi
+          case "${VERSION}" in
+            *-*) PRERELEASE=true ;;
+            *)   PRERELEASE=false ;;
+          esac
+          {
+            echo "version=${VERSION}"
+            echo "vsix=word-highlighter-${VERSION}.vsix"
+            echo "prerelease=${PRERELEASE}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Package VSIX
+        env:
+          VSIX: ${{ steps.meta.outputs.vsix }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          ARGS=(package --no-dependencies --out "$VSIX")
+          if [ "$PRERELEASE" = "true" ]; then
+            ARGS+=(--pre-release)
+          fi
+          # vsce runs vscode:prepublish through `npm run`; that script calls pnpm,
+          # which is available on PATH thanks to pnpm/action-setup.
+          pnpm dlx "@vscode/vsce@4.1.1" "${ARGS[@]}"
+          test -f "$VSIX"
+
+      - name: Extract release notes
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          NOTES_FILE="${RUNNER_TEMP}/release-notes.md"
+          node - "$NOTES_FILE" <<'NODE'
+          const fs = require('fs');
+          const out = process.argv[2];
+          const version = process.env.VERSION;
+
+          let lines = [];
+          try {
+            lines = fs.readFileSync('CHANGELOG.md', 'utf8').split(/\r?\n/);
+          } catch (err) {
+            console.warn(`CHANGELOG.md not readable: ${err.message}`);
+          }
+
+          const body = [];
+          let inSection = false;
+          for (const line of lines) {
+            const m = line.match(/^##\s+\[?v?([^\]\s]+)\]?/);
+            if (m) {
+              if (inSection) break;
+              if (m[1] === version) {
+                inSection = true;
+                continue;
+              }
+            }
+            if (inSection) body.push(line);
+          }
+
+          const text = body.join('\n').trim();
+          fs.writeFileSync(out, text ? text + '\n' : '');
+          NODE
+          if [ ! -s "$NOTES_FILE" ]; then
+            echo "::warning::No CHANGELOG entry for ${VERSION}; using fallback notes."
+            printf 'See the [CHANGELOG.md](https://github.com/%s/blob/%s/CHANGELOG.md) for details.\n' \
+              "$GITHUB_REPOSITORY" "$TAG" > "$NOTES_FILE"
+          fi
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VSIX: ${{ steps.meta.outputs.vsix }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+          NOTES_FILE: ${{ runner.temp }}/release-notes.md
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists; updating asset and notes."
+            gh release upload "$TAG" "$VSIX" --clobber --repo "$GITHUB_REPOSITORY"
+            EDIT_ARGS=(--title "$TAG" --notes-file "$NOTES_FILE" --repo "$GITHUB_REPOSITORY")
+            if [ "$PRERELEASE" = "true" ]; then
+              EDIT_ARGS+=(--prerelease)
+            fi
+            gh release edit "$TAG" "${EDIT_ARGS[@]}"
+          else
+            CREATE_ARGS=(--verify-tag --title "$TAG" --notes-file "$NOTES_FILE" --repo "$GITHUB_REPOSITORY")
+            if [ "$PRERELEASE" = "true" ]; then
+              CREATE_ARGS+=(--prerelease --latest=false)
+            fi
+            gh release create "$TAG" "$VSIX" "${CREATE_ARGS[@]}"
+          fi

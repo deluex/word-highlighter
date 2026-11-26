@@ -3,6 +3,7 @@
   "displayName": "Word Highlighter",
   "description": "Highlight words in code files with F8 key",
   "version": "1.0.0",
+  "publisher": "deluex",
   "engines": {
     "vscode": "^1.103.0"
   },
